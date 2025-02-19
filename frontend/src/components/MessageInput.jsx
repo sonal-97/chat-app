@@ -1,46 +1,103 @@
 import { useRef, useState } from "react";
 import { useChatStore } from "../store/useChatStore";
-import { Image, Send, X } from "lucide-react";
+import { Image as ImageIcon, Send, X } from "lucide-react"; // Renamed Image to ImageIcon
 import toast from "react-hot-toast";
 
 const MessageInput = () => {
   const [text, setText] = useState("");
   const [imagePreview, setImagePreview] = useState(null);
+  const [compressedImage, setCompressedImage] = useState(null);
   const fileInputRef = useRef(null);
   const { sendMessage } = useChatStore();
 
+  // Handle image selection & preview
   const handleImageChange = (e) => {
     const file = e.target.files[0];
-    if (!file.type.startsWith("image/")) {
-      toast.error("Please select an image file");
+
+    if (!file) {
+      toast.error("No file selected");
       return;
     }
 
+    if (!file.type.startsWith("image/")) {
+      toast.error("Please select a valid image file");
+      return;
+    }
+
+    // Show preview first
     const reader = new FileReader();
     reader.onloadend = () => {
       setImagePreview(reader.result);
+      compressImage(reader.result); // Compress image after preview
     };
     reader.readAsDataURL(file);
   };
 
+  // Compress image before sending
+  const compressImage = (dataUrl) => {
+    const img = new window.Image(); // Use window.Image() to avoid conflict
+    img.src = dataUrl;
+
+    img.onload = () => {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+
+      // Set max width & height
+      const MAX_WIDTH = 300;
+      const MAX_HEIGHT = 300;
+
+      let width = img.width;
+      let height = img.height;
+
+      if (width > MAX_WIDTH || height > MAX_HEIGHT) {
+        if (width > height) {
+          height *= MAX_WIDTH / width;
+          width = MAX_WIDTH;
+        } else {
+          width *= MAX_HEIGHT / height;
+          height = MAX_HEIGHT;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      ctx.drawImage(img, 0, 0, width, height);
+
+      // Convert to JPEG (0.7 quality)
+      const compressedDataUrl = canvas.toDataURL("image/jpeg", 0.7);
+
+      // Check size & warn if still too big
+      if (compressedDataUrl.length > 100 * 1024) {
+        toast.error("Image is still too large after compression!");
+        setCompressedImage(null);
+      } else {
+        setCompressedImage(compressedDataUrl);
+      }
+    };
+  };
+
+  // Remove image
   const removeImage = () => {
     setImagePreview(null);
+    setCompressedImage(null);
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
+  // Handle message send
   const handleSendMessage = async (e) => {
     e.preventDefault();
-    if (!text.trim() && !imagePreview) return;
+    if (!text.trim() && !compressedImage) return;
 
     try {
       await sendMessage({
         text: text.trim(),
-        image: imagePreview,
+        image: compressedImage, // Sends compressed image
       });
 
       // Clear form
       setText("");
       setImagePreview(null);
+      setCompressedImage(null);
       if (fileInputRef.current) fileInputRef.current.value = "";
     } catch (error) {
       console.error("Failed to send message:", error);
@@ -92,13 +149,13 @@ const MessageInput = () => {
                      ${imagePreview ? "text-emerald-500" : "text-zinc-400"}`}
             onClick={() => fileInputRef.current?.click()}
           >
-            <Image size={20} />
+            <ImageIcon size={20} />
           </button>
         </div>
         <button
           type="submit"
           className="btn btn-sm btn-circle"
-          disabled={!text.trim() && !imagePreview}
+          disabled={!text.trim() && !compressedImage}
         >
           <Send size={22} />
         </button>
@@ -106,4 +163,5 @@ const MessageInput = () => {
     </div>
   );
 };
+
 export default MessageInput;
