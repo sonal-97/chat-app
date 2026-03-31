@@ -7,6 +7,7 @@ import MessageInput from "./MessageInput";
 import MessageSkeleton from "./skeletons/MessageSkeleton";
 import { useAuthStore } from "../store/useAuthStore";
 import { formatMessageTime } from "../lib/utils";
+import { analyzeChat } from "../lib/geminiAnalyzer";
 
 const ChatContainer = () => {
   const {
@@ -42,40 +43,26 @@ const ChatContainer = () => {
     const conversationText = buildConversationText();
     if (!conversationText.trim()) return;
 
-    const requestBody = { message: conversationText };
-    console.log("[Analyzer] Sending chat analysis request:", requestBody);
+    console.log("[Analyzer] Sending chat to Gemini for analysis...");
 
     try {
-      const response = await fetch("http://localhost:5000/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(requestBody),
-      });
-
-      const data = await response.json();
-      console.log("[Analyzer] Received response:", response.status, data);
-      if (!response.ok) {
-        throw new Error(data.error || "Analysis request failed.");
-      }
-
-      const isScam =
-        data.classification === "Social Engineering" || data.gemini_is_scam;
+      const data = await analyzeChat(conversationText);
+      console.log("[Analyzer] Gemini response:", data);
 
       setAnalysisResult({
         ...data,
-        isScam,
         analyzedAt: new Date().toISOString(),
       });
       setLastAnalyzedCount(messages.length);
 
-      if (isScam) {
-        toast.error("Scam alert: this conversation looks like social engineering.");
+      if (data.isScam) {
+        toast.error("⚠️ Scam alert: this conversation looks like social engineering.");
       } else {
-        toast.success("Conversation appears legitimate.");
+        toast.success("✅ Conversation appears legitimate.");
       }
     } catch (error) {
       toast.error(error.message || "Failed to analyze chat.");
-      console.error(error);
+      console.error("[Analyzer] Error:", error);
     }
   }, [buildConversationText, messages, selectedUser]);
 
@@ -138,21 +125,30 @@ const ChatContainer = () => {
           }`}
         >
           <div>
-            <span className="font-semibold">
-              {analysisResult.isScam ? "Scam warning:" : "Analysis result:"}
+            <span className="font-semibold text-lg">
+              {analysisResult.isScam ? "⚠️ Scam Warning" : "✅ Analysis Result"}
             </span>
             <p className="mt-1">
-              {analysisResult.isScam
-                ? "This conversation appears to contain social engineering content."
-                : "This conversation appears legitimate."}
+              {analysisResult.summary}
             </p>
             <p className="text-sm opacity-70 mt-2">
-              Verdict: {analysisResult.classification} • Probability: {analysisResult.probability}
+              Confidence: {Math.round(analysisResult.confidence * 100)}% • Severity: {analysisResult.severity?.toUpperCase()}
             </p>
-            {analysisResult.isScam && (
+            {analysisResult.isScam && analysisResult.indicators?.length > 0 && (
               <p className="text-sm opacity-70 mt-1">
-                Indicators: {analysisResult.gemini_indicators?.join(", ") || "None"}
+                🚩 Indicators: {analysisResult.indicators.join(", ")}
               </p>
+            )}
+            {analysisResult.isScam && analysisResult.manipulation_techniques?.length > 0 && (
+              <p className="text-sm opacity-70 mt-1">
+                🎯 Techniques: {analysisResult.manipulation_techniques.join(", ")}
+              </p>
+            )}
+            {analysisResult.explanation && (
+              <details className="mt-2">
+                <summary className="text-sm cursor-pointer opacity-70 hover:opacity-100">View detailed explanation</summary>
+                <p className="text-sm mt-1 opacity-80">{analysisResult.explanation}</p>
+              </details>
             )}
           </div>
         </div>
